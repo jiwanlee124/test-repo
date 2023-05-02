@@ -1,0 +1,503 @@
+---
+title: "Child Poverty in the United States "
+author: "Eunho Cha, Jiwan Lee, Yihang Sun" 
+output:
+  rmdformats::readthedown:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+---
+
+#  {.tabset}
+
+## Visualization 
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Load packages.
+packages <- c("devtools","knitr","leaflet","shiny","raster","rgdal","RColorBrewer","dplyr","readr", "rmdformats", "highcharter", "dygraphs", "rsconnect", "tidyr", "ggplot2", "ggthemes")
+
+packages <- lapply(packages, FUN = function(x) {
+  if(!require(x, character.only = TRUE)) {
+    install.packages(x)
+    library(x, character.only = TRUE)
+  }
+})
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Change into your personal working directory where the data is located 
+knitr::opts_knit$set(root.dir = '/Users/jiwanlee/Library/CloudStorage/GoogleDrive-jl6054@columbia.edu/My Drive/001. Columbia/00. Spring 2023/Data Visualization/Final project/Data')
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Warning: The dataset is very large with 9M obs. Brace yourself to take long time to load the data 
+spm <- read_csv("pub_spm_all.csv")
+```
+
+<strong>Child poverty</strong> is a crucial indicator of the economic and social well-being of society. The United States has faced ongoing challenges in addressing its high child poverty rate. Our analysis aims to examine the impact of governmental efforts to reduce child poverty by expanding public benefits for families with children. 
+
+### How has the child poverty rate changed between 1968 and 2020? 
+
+To better understand changes in child poverty rates over time, we compare two poverty measures: the <span style="color: #0d7dc3;"><b> Official Poverty Measure (OPM)</span></b> and the <span style="color: #f46c0b;"><b> Supplemental Poverty Measure (SPM) </span></b> . The <span style="color: #0d7dc3;"> OPM </span> provides a traditional poverty measure based solely on income, while the <span style="color: #f46c0b;"> SPM </span> provides a more comprehensive measure that accounts for family resources from government benefits such as food stamps and welfare cash assistance. By comparing two poverty measures, we can gain a more complete understanding of how governmental efforts to expand public benefits for families with children have impacted child poverty rates from 1968 to 2020. 
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Check the missing values 
+sum(is.na(spm$offpov1))
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Remove missing values from the data
+spm_clean <- na.omit(spm)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Calculate official child poverty rate each year
+spm_offpov <- spm_clean %>%
+  filter(age < 18) %>%
+  group_by(refyear) %>%
+  summarise(offpov = mean(offpov1))
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Calculate SPM child poverty rate each year
+spm_spmpov <- spm_clean%>%
+  filter(age < 18) %>%
+  group_by(refyear) %>%
+  summarise(spmpov = mean(SPMu_Poor_Metadj))
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# merge SPM and OPM without 1967 (0 OPM in 1967)
+spm_spmpov <- subset(spm_spmpov, refyear != 1967)
+spm_offpov <- subset(spm_offpov, refyear != 1967)
+
+spm_childpov <- merge(spm_spmpov, spm_offpov, by = "refyear")
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+spm_spmpov2 <- spm_spmpov %>%
+  mutate(spmpov = spmpov*100)
+spm_offpov2 <- spm_offpov %>%
+  mutate(offpov = offpov*100)
+
+spm_childpov_2 <- merge(spm_spmpov2, spm_offpov2, by = "refyear")
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+
+library(dygraphs)
+dygraph(spm_childpov_2, main = "Child Poverty Rates: 1968-2020") %>%
+   dySeries("spmpov", label = "SPM", color = "#f46c0b") %>%
+  dySeries("offpov", label = "OPM", color = "#0d7dc3") %>%
+    dyAxis("y", valueRange = c(5, 25)) %>% 
+    dyAxis("x", label = "Year") %>% 
+    dyOptions(drawPoints = TRUE, pointSize = 3) %>%
+    dyHighlight(highlightSeriesOpts = list(strokeWidth = 3)) %>%
+    dyLegend(show = "follow") %>%
+    dyRangeSelector() %>%
+   dyEvent("2020", "COVID-19", labelLoc = "bottom") %>%
+  dyEvent("2008", "Recession", labelLoc = "bottom") %>%
+  dyEvent("1996", "Welfare reform", labelLoc = "bottom") %>%
+  dyShading(from = "2007", to = "2009") 
+```
+
+### Families with children are poorer than families without children? 
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# SPMwKids = 1 (families with children) vs. 0 (families without children)
+spm_clean$SPMwKids <- ifelse(spm_clean$SPMu_NumKids > 0, 1, 0)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Calculate official poverty rate each year by the presence of children 
+spm_offpov_bykids <- spm_clean %>%
+  group_by(refyear, SPMwKids) %>%
+  summarise(offpov = mean(offpov1), .groups = "drop") %>%
+  filter(offpov!=0)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Calculate SPM poverty rate each year by the presence of children 
+spm_spmpov_bykids <- spm_clean %>%
+  group_by(refyear, SPMwKids) %>%
+  summarise(spmpov = mean(SPMu_Poor_Metadj), .groups = "drop") %>%
+  filter(refyear!=1967)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Merge SPM and OPM
+spm_childpov2 <- merge(spm_spmpov_bykids, spm_offpov_bykids, by = c("refyear", "SPMwKids"))
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Kids and No Kids 
+childpov_kids <- spm_childpov2 %>%
+  filter(SPMwKids==1) %>%
+  mutate(spmpov = spmpov*100) 
+childpov_kids$spm_kids <- childpov_kids$spmpov
+childpov_kids <- childpov_kids[, c('refyear', 'spm_kids')]
+
+childpov_nokids <- spm_childpov2 %>%
+  filter(SPMwKids==0) %>%
+    mutate(spmpov = spmpov*100) 
+childpov_nokids$spm_nokids <- childpov_nokids$spmpov
+childpov_nokids <- childpov_nokids[, c('refyear', 'spm_nokids')]
+
+childpov_merge2 <- merge(childpov_kids, childpov_nokids, by = c("refyear"))
+```
+
+```{r, warning=FALSE, echo=FALSE, error=FALSE, message=FALSE}
+dygraph(childpov_merge2, main = "SPM Poverty Rate by Family Structure") %>%
+   dySeries("spm_kids", label = "Families with Children", color = "#f46c0b") %>%
+  dySeries("spm_nokids", label = "Families without Children", color = "#9f1f42") %>%
+    dyAxis("y", label = "SPM Poverty Rate", valueRange = c(5, 25)) %>% 
+    dyAxis("x", label = "Year") %>% 
+    dyOptions(drawPoints = TRUE, pointSize = 3) %>%
+    dyHighlight(highlightSeriesOpts = list(strokeWidth = 3)) %>%
+    dyLegend(show = "always", width = 500) 
+```
+
+
+
+### How much public transfers reduce child poverty? 
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# With total resources: "SPMu_Resources2" 
+
+# Baseline: Without both sources 
+spm_clean <- spm_clean %>%
+  mutate(SPMu_Res_absent = SPMu_Resources2 - SPMu_Stimulus - SPMu_FedEcRecov - SPMu_Welf - SPMu_SSI - SPMu_SS - SPMu_UE2 - SPMu_SNAPSub - SPMu_CapHouseSub2 - SPMu_SchLunch - SPMu_EngVal - SPMu_WICval)
+
+# In-kind: SPMu_SNAPSub ; SPMu_CapHouseSub ; SPMu_SchLunch ; SPMu_EngVal ; SPMu_WICval 
+spm_clean <- spm_clean %>%
+  mutate(SPMu_Res_inkind = SPMu_Res_absent + SPMu_SNAPSub + SPMu_CapHouseSub2 + SPMu_SchLunch + SPMu_EngVal + SPMu_WICval)
+
+spm_clean <- spm_clean %>%
+  mutate(SPMu_Res_snap = SPMu_Res_absent + SPMu_SNAPSub,
+         SPMu_Res_house = SPMu_Res_absent + SPMu_CapHouseSub2,
+         SPMu_Res_lunch = SPMu_Res_absent + SPMu_SchLunch,
+         SPMu_Res_energy = SPMu_Res_absent + SPMu_EngVal, 
+         SPMu_Res_wic = SPMu_Res_absent + SPMu_WICval)
+
+
+# Cash: SPMu_Stimulus ; SPMu_FedEcRecov ; SPMu_Welf ; SPMu_SSI ; SPMu_SS ; SPMu_UE2 
+spm_clean <- spm_clean %>%
+  mutate(SPMu_Res_cash = SPMu_Res_absent + SPMu_Stimulus + SPMu_FedEcRecov + SPMu_Welf + SPMu_SSI + SPMu_SS + SPMu_UE2)
+
+spm_clean <- spm_clean %>%
+  mutate(SPMu_Res_stimulus = SPMu_Res_absent + SPMu_Stimulus,
+         SPMu_Res_recov = SPMu_Res_absent + SPMu_FedEcRecov,
+         SPMu_Res_tanf = SPMu_Res_absent + SPMu_Welf,
+         SPMu_Res_ssi = SPMu_Res_absent + SPMu_SSI, 
+         SPMu_Res_ss = SPMu_Res_absent + SPMu_SS,
+         SPMu_Res_ui = SPMu_Res_absent + SPMu_UE2)
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Comparing each resource to the SPM threshold, "SPMu_PovThreshold_Metadj" 
+
+# SPM poverty rate without resources from in-kind benefits
+spm_clean <- spm_clean %>%
+  mutate(spmpov_inkind = if_else(SPMu_Res_inkind < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_snap = if_else(SPMu_Res_snap < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_house = if_else(SPMu_Res_house < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_lunch = if_else(SPMu_Res_lunch < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_energy = if_else(SPMu_Res_energy < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_wic = if_else(SPMu_Res_wic < SPMu_PovThreshold_Metadj, 1, 0))
+
+# SPM poverty rate without resources from cash benefits
+spm_clean <- spm_clean %>%
+  mutate(spmpov_cash = if_else(SPMu_Res_cash < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_tanf = if_else(SPMu_Res_tanf < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_ssi = if_else(SPMu_Res_ssi < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_ss = if_else(SPMu_Res_ss < SPMu_PovThreshold_Metadj, 1, 0),
+         spmpov_ui = if_else(SPMu_Res_ui < SPMu_PovThreshold_Metadj, 1, 0))
+
+# SPM poverty rate without any sources from government 
+spm_clean <- spm_clean %>%
+  mutate(spmpov_absent = ifelse(SPMu_Res_absent < SPMu_PovThreshold_Metadj, 1, 0))
+
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+spm_spmpov_summary <- spm_clean %>%
+  filter(age < 18) %>%
+  group_by(refyear) %>%
+  summarise(across(starts_with("spmpov_"), ~ mean(.)))
+
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+library(tidyr)
+
+spm_long <- spm_spmpov_summary %>% 
+  pivot_longer(cols = starts_with("spmpov"), names_to = "program", values_to = "spmpov") %>% 
+  mutate(program = gsub("spmpov_", "", program), refyear = paste0("spmpov_", refyear)) %>% 
+  pivot_wider(names_from = refyear, values_from = spmpov)
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+library(ggplot2)
+library(ggthemes)
+
+spm_long %>%
+  arrange(spmpov_1968) %>%
+  ggplot(aes(x=program)) +
+  geom_segment( aes(xend=program, y=spmpov_2020, yend=spmpov_1968), color="grey") +
+  geom_point( aes(y=spmpov_1968, color="SPM 1968"), size=3 ) +
+  geom_point( aes(y=spmpov_2020, color="SPM 2020"), size=3 ) +
+  coord_flip(ylim = c(0, 0.3)) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 10),
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+  ) +
+  xlab("") +
+  ylab("SPM child poverty rates") +
+  ggtitle("Effect of each government transfer on child poverty rates in 1968 vs. 2020") +
+  scale_color_manual(values = c(rgb(0.2,0.7,0.1,0.5), rgb(0.7,0.2,0.1,0.5)), 
+                     labels = c("SPM 1968", "SPM 2020")) 
+
+```
+
+### Geographical Difference in Child Poverty in 2021 
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Browse CPS ASEC 2022 (calendar year is 2021) data 
+# This is Census Bureau version of data merging personal and household level data (not iPUMS)
+cps_asec_2021 <- read_csv("cps_asec_22_census_merged.csv")
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# SPM total resource that accounts for all transfers: "spm_resources" 
+
+# Baseline: Without any resources 
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(SPM_res_absent = spm_resources - spm_snapsub - spm_caphousesub - spm_schlunch - spm_engval - spm_wicval - spm_eip - spm_paw_val - spm_ssi_val - spm_ss_val - spm_uc_val - spm_totctc - spm_eitc)
+
+# With In-kind: spm_snapsub ; spm_caphousesub ; spm_schlunch  ; spm_engval ; spm_wicval 
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(SPM_res_inkind = SPM_res_absent + spm_snapsub+spm_caphousesub+spm_schlunch+spm_engval+spm_wicval)
+
+# With Cash: SPMu_Stimulus ; spm_eip ; spm_paw_val ; spm_ssi_val ; spm_ss_val ; spm_uc_val 
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(SPM_res_cash = SPM_res_absent + spm_eip + spm_paw_val + spm_ssi_val + spm_ss_val + spm_uc_val)
+
+# With Tax credit: spm_totctc ; spm_eitc
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(SPM_res_taxc = SPM_res_absent + spm_totctc + spm_eitc) 
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Comparing each resource to the SPM threshold, "SPMu_PovThreshold_Metadj" 
+
+# SPM poverty rate without resources from in-kind benefits
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(spmpov_inkind = ifelse(SPM_res_inkind < spm_povthreshold, 1, 0))
+
+# SPM poverty rate without resources from cash benefits
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(spmpov_cash = ifelse(SPM_res_cash < spm_povthreshold, 1, 0))
+
+# SPM poverty rate without resources from tax credits 
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(spmpov_tax = ifelse(SPM_res_taxc < spm_povthreshold, 1, 0))
+
+# SPM poverty rate without any sources from government 
+cps_asec_2021 <- cps_asec_2021 %>%
+  mutate(spmpov_absent = ifelse(SPM_res_absent < spm_povthreshold, 1, 0))
+
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Child poverty rate (SPM)
+spmpov_bystate <- cps_asec_2021%>%
+  filter(a_age < 18) %>%
+  group_by(gestfips) %>%
+  summarise(spmpov = mean(spm_poor))
+
+# Child poverty rate without in-kind transfers 
+spmpov_inkind_bystate <- cps_asec_2021%>%
+  filter(a_age < 18) %>%
+  group_by(gestfips) %>%
+  summarise(spmpov_inkind = mean(spmpov_inkind))
+
+# Child poverty rate without cash transfers 
+spmpov_cash_bystate <- cps_asec_2021%>%
+  filter(a_age < 18) %>%
+  group_by(gestfips) %>%
+  summarise(spmpov_cash = mean(spmpov_cash))
+
+# Child poverty rate without tax credits 
+spmpov_tax_bystate <- cps_asec_2021%>%
+  filter(a_age < 18) %>%
+  group_by(gestfips) %>%
+  summarise(spmpov_tax = mean(spmpov_tax))
+
+# Child poverty rate without cash transfers & in-kind 
+spmpov_absent_bystate <- cps_asec_2021%>%
+  filter(a_age < 18) %>%
+  group_by(gestfips) %>%
+  summarise(spmpov_absent = mean(spmpov_absent))
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+state <- read.csv("statefips.csv")
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Merge all different child poverty rates with and without resources by each state 
+spmpov_state <- spmpov_bystate %>%
+  inner_join(spmpov_inkind_bystate, by = "gestfips") %>%
+  inner_join(spmpov_cash_bystate, by = "gestfips") %>%
+  inner_join(spmpov_tax_bystate, by = "gestfips") %>%
+  inner_join(state, by = "gestfips") %>%
+  inner_join(spmpov_absent_bystate, by = "gestfips")
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+spmpov_state$reduc_cash <- ((spmpov_state$spmpov_absent - spmpov_state$spmpov_cash) / spmpov_state$spmpov_absent) * 100
+
+spmpov_state$reduc_inkind <- ((spmpov_state$spmpov_absent - spmpov_state$spmpov_inkind) / spmpov_state$spmpov_absent) * 100
+
+spmpov_state$reduc_tax <- ((spmpov_state$spmpov_absent - spmpov_state$spmpov_tax) / spmpov_state$spmpov_absent) * 100
+
+spmpov_state$reduc_all <- ((spmpov_state$spmpov_absent - spmpov_state$spmpov) / spmpov_state$spmpov_absent) * 100
+
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Browse Geojson file 
+states <- geojsonio::geojson_read("https://rstudio.github.io/leaflet/json/us-states.geojson", what = "sp")
+class(states)
+
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+
+combined <- states@data %>%
+    left_join(spmpov_state, by = c(name = "state"))
+states@data <- combined
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+m <- leaflet(states) %>%
+  setView(-96, 37.8, 4) 
+```
+
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+m %>% addPolygons()
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+table(spmpov_state$reduc_all)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+# Creating choropleth map 
+bins <- c(60, 70, 80, 90, 100)
+pal <- colorBin("YlOrRd", domain = states$reduc_all, bins = bins)
+
+m %>% addPolygons(
+  fillColor = ~pal(reduc_all),
+  weight = 2,
+  opacity = 1,
+  color = "white",
+  dashArray = "3",
+  fillOpacity = 0.7)
+```
+
+```{r, warning=FALSE, echo=FALSE, results = 'hide', error=FALSE, message=FALSE}
+labels <- sprintf(
+  "<strong>%s</strong><br/>Poverty reduction effect: %.1f percent <br/> SPM poverty rate: %.1f percent <br/> Poverty rate without transfers: %.1f percent",
+  states$name, states$reduc_all, states$spmpov*100, states$spmpov_absent*100
+) %>% lapply(htmltools::HTML)
+
+m <- m %>% addPolygons(
+  fillColor = ~pal(reduc_all),
+  weight = 2,
+  opacity = 1,
+  color = "white",
+  dashArray = "3",
+  fillOpacity = 0.7,
+  highlightOptions = highlightOptions(
+    weight = 5,
+    color = "#666",
+    dashArray = "",
+    fillOpacity = 0.7,
+    bringToFront = TRUE),
+  label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "13px",
+    direction = "auto"))
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+m %>% addLegend(pal = pal, values = ~density, opacity = 0.7, title = NULL,
+  position = "bottomright")
+```
+
+## Data and Methods 
+
+### Poverty Measures
+There are two different ways to measure the poverty rate. The Official Poverty Measure (OPM) is a metric used by the US Census Bureau to determine the poverty rate in the United States. It was developed in the 1960s and is based on pre-tax income thresholds that vary by family size and composition. The OPM does not take into account government benefits, such as tax credits or food assistance, or regional differences in the cost of living.
+
+The Supplemental Poverty Measure (SPM), on the other hand, is a more comprehensive measure of poverty that takes into account both government benefits and regional cost of living differences. The SPM was developed in 2011 by the US Census Bureau and the Bureau of Labor Statistics, and it provides a more accurate picture of poverty in the United States.
+
+The SPM uses a broader definition of income than the OPM, which includes non-cash government benefits like food stamps and housing subsidies, as well as cash transfers like unemployment insurance benefits. It also adjusts for geographic differences in the cost of living, such as housing costs, which can vary widely across the country.
+
+### Data 
+Our poverty estimates rely on two sources of data. For the historical trend of child poverty rate from 1968 to 2020, we used Historical Supplemental Poverty Measure (SPM) Data from the Center on Policy and Social Policy at Columbia University. It is an individual-level data that offers one's poverty status and the information on the amount of income resources from various government benefits. We limited our analysis to children under the age of 18. More information on historical SPM data is available at https://www.povertycenter.columbia.edu/historical-spm-data. 
+
+The second data source is from the 2022 Annual Social and Economic Supplement of the Current Population Survey (CPS-ASEC), which collects all data necessary to estimate the 2021 poverty rates under both OPM and SPM. All data are downloaded from the University of Minnesota’s Integrated Public Use Microdata Series (IPUMS-CPS, University of Minnesota, www.ipums.org; Flood et al., 2022). 
+
+### List of government benefits 
+There are two types of government benefits: in-kind transfers and cash transfers. In-kind transfers refer to any transfer of income that can only be used to fulfill a specific need (e.g., food, housing, etc). Cash transfers are income sources that can be spent at the discretion of the recipient. 
+
+The in-kind transfers we analyze include: 
+
+* Supplemental Nutrition Assistance Program (SNAP) 
+* Housing subsidies 
+* Free and reduced school lunch 
+* Energy subsidies 
+* Special Supplemental Nutrition Program for Women, Infants, and Children (WIC)
+
+The cash transfers we analyze include: 
+
+* Social Security (SS)
+* Supplemental Security Income (SSI)
+* Temporary Assistance for Needy Families (TANF) 
+    + Aid to Families with Dependent Children (AFDC) until 1996
+* Unemployment Insurance (UI)
+
+Our analysis examines the individual and combined effects of these various government transfers on child poverty reduction. 
+
+## Process book 
+
+![process_book](/Users/jiwanlee/Library/CloudStorage/GoogleDrive-jl6054@columbia.edu/My Drive/001. Columbia/00. Spring 2023/Data Visualization/Final project/Data/img/logseq_Process_book.png){#id .class width=120}
+
